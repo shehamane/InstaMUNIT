@@ -9,15 +9,20 @@ import torch
 import torch.nn as nn
 import os
 
+
 class MUNIT_Trainer(nn.Module):
     def __init__(self, hyperparameters):
         super(MUNIT_Trainer, self).__init__()
         lr = hyperparameters['lr']
         # Initiate the networks
-        self.gen_a = AdaINGen(hyperparameters['input_dim_a'], hyperparameters['gen'])  # auto-encoder for domain a
-        self.gen_b = AdaINGen(hyperparameters['input_dim_b'], hyperparameters['gen'])  # auto-encoder for domain b
-        self.dis_a = MsImageDis(hyperparameters['input_dim_a'], hyperparameters['dis'])  # discriminator for domain a
-        self.dis_b = MsImageDis(hyperparameters['input_dim_b'], hyperparameters['dis'])  # discriminator for domain b
+        self.gen_a = AdaINGen(hyperparameters['input_dim_a'], hyperparameters['gen'],
+                              hyperparameters['labels'])  # auto-encoder for domain a
+        self.gen_b = AdaINGen(hyperparameters['input_dim_b'], hyperparameters['gen'],
+                              hyperparameters['labels'])  # auto-encoder for domain b
+        self.dis_a = MsImageDis(hyperparameters['input_dim_a'], hyperparameters['dis'],
+                                hyperparameters['labels'])  # discriminator for domain a
+        self.dis_b = MsImageDis(hyperparameters['input_dim_b'], hyperparameters['dis'],
+                                hyperparameters['labels'])  # discriminator for domain b
         self.instancenorm = nn.InstanceNorm2d(512, affine=False)
         self.style_dim = hyperparameters['gen']['style_dim']
 
@@ -53,49 +58,60 @@ class MUNIT_Trainer(nn.Module):
     def recon_criterion(self, input, target):
         return torch.mean(torch.abs(input - target))
 
-    def forward(self, x_a, x_b):
+    def forward(self, x_a, x_a_seg, x_b, x_b_seg):
         self.eval()
         s_a = Variable(self.s_a)
         s_b = Variable(self.s_b)
-        c_a, s_a_fake = self.gen_a.encode(x_a)
-        c_b, s_b_fake = self.gen_b.encode(x_b)
-        x_ba = self.gen_a.decode(c_b, s_a)
-        x_ab = self.gen_b.decode(c_a, s_b)
+        c_a, s_a_fake, c_a_seg = self.gen_a.encode(x_a, x_a_seg)
+        c_b, s_b_fake, c_b_seg = self.gen_b.encode(x_b, x_b_seg)
+        x_ba, x_ba_seg = self.gen_a.decode(c_b, s_a, c_b_seg)
+        x_ab, x_ab_seg = self.gen_b.decode(c_a, s_b, c_a_seg)
         self.train()
         return x_ab, x_ba
 
-    def gen_update(self, x_a, x_b, hyperparameters):
+    def gen_update(self, x_a, x_a_seg, x_b, x_b_seg, hyperparameters):
         self.gen_opt.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
         # encode
-        c_a, s_a_prime = self.gen_a.encode(x_a)
-        c_b, s_b_prime = self.gen_b.encode(x_b)
+        c_a, s_a_prime, c_a_seg = self.gen_a.encode(x_a, x_a_seg)
+        c_b, s_b_prime, c_b_seg = self.gen_b.encode(x_b, x_b_seg)
         # decode (within domain)
-        x_a_recon = self.gen_a.decode(c_a, s_a_prime)
-        x_b_recon = self.gen_b.decode(c_b, s_b_prime)
+        x_a_recon, x_a_recon_seg = self.gen_a.decode(c_a, s_a_prime, c_a_seg)
+        x_b_recon, x_b_recon_seg = self.gen_b.decode(c_b, s_b_prime, c_b_seg)
         # decode (cross domain)
-        x_ba = self.gen_a.decode(c_b, s_a)
-        x_ab = self.gen_b.decode(c_a, s_b)
+        x_ba, x_ba_seg = self.gen_a.decode(c_b, s_a, c_b_seg)
+        x_ab, x_ab_seg = self.gen_b.decode(c_a, s_b, c_a_seg)
         # encode again
-        c_b_recon, s_a_recon = self.gen_a.encode(x_ba)
-        c_a_recon, s_b_recon = self.gen_b.encode(x_ab)
+        c_b_recon, s_a_recon, c_b_recon_seg = self.gen_a.encode(x_ba, x_b_seg)
+        c_a_recon, s_b_recon, c_a_recon_seg = self.gen_b.encode(x_ab, x_a_seg)
         # decode again (if needed)
-        x_aba = self.gen_a.decode(c_a_recon, s_a_prime) if hyperparameters['recon_x_cyc_w'] > 0 else None
-        x_bab = self.gen_b.decode(c_b_recon, s_b_prime) if hyperparameters['recon_x_cyc_w'] > 0 else None
+        x_aba, x_aba_seg = self.gen_a.decode(c_a_recon, s_a_prime, c_a_recon_seg) if hyperparameters[
+                                                                                         'recon_x_cyc_w'] > 0 else None
+        x_bab, x_bab_seg = self.gen_b.decode(c_b_recon, s_b_prime, c_b_recon_seg) if hyperparameters[
+                                                                                         'recon_x_cyc_w'] > 0 else None
 
         # reconstruction loss
         self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon, x_a)
+        self.loss_gen_recon_x_a_seg = self.recon_criterion(x_a_recon_seg, x_a_seg)
         self.loss_gen_recon_x_b = self.recon_criterion(x_b_recon, x_b)
+        self.loss_gen_recon_x_b_seg = self.recon_criterion(x_b_recon_seg, x_b_seg)
         self.loss_gen_recon_s_a = self.recon_criterion(s_a_recon, s_a)
         self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b)
         self.loss_gen_recon_c_a = self.recon_criterion(c_a_recon, c_a)
+        self.loss_gen_recon_c_a_seg = self.recon_criterion(c_a_recon_seg, c_a_seg)
         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
+        self.loss_gen_recon_c_b_seg = self.recon_criterion(c_b_recon_seg, c_b_seg)
         self.loss_gen_cycrecon_x_a = self.recon_criterion(x_aba, x_a) if hyperparameters['recon_x_cyc_w'] > 0 else 0
+        self.loss_gen_cycrecon_x_a_seg = self.recon_criterion(x_aba_seg, x_a_seg) if hyperparameters[
+                                                                                         'recon_x_cyc_w'] > 0 else 0
         self.loss_gen_cycrecon_x_b = self.recon_criterion(x_bab, x_b) if hyperparameters['recon_x_cyc_w'] > 0 else 0
+        self.loss_gen_cycrecon_x_b_seg = self.recon_criterion(x_bab_seg, x_b_seg) if hyperparameters[
+                                                                                         'recon_x_cyc_w'] > 0 else 0
+
         # GAN loss
-        self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba)
-        self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab)
+        self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba, x_ba_seg)
+        self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab, x_ab_seg)
         # domain-invariant perceptual loss
         self.loss_gen_vgg_a = self.compute_vgg_loss(self.vgg, x_ba, x_b) if hyperparameters['vgg_w'] > 0 else 0
         self.loss_gen_vgg_b = self.compute_vgg_loss(self.vgg, x_ab, x_a) if hyperparameters['vgg_w'] > 0 else 0
@@ -111,7 +127,15 @@ class MUNIT_Trainer(nn.Module):
                               hyperparameters['recon_x_cyc_w'] * self.loss_gen_cycrecon_x_a + \
                               hyperparameters['recon_x_cyc_w'] * self.loss_gen_cycrecon_x_b + \
                               hyperparameters['vgg_w'] * self.loss_gen_vgg_a + \
-                              hyperparameters['vgg_w'] * self.loss_gen_vgg_b
+                              hyperparameters['vgg_w'] * self.loss_gen_vgg_b + \
+                              hyperparameters['gan_w'] * self.loss_gen_adv_a + \
+                              hyperparameters['gan_w'] * self.loss_gen_adv_b + \
+                              hyperparameters['recon_x_w'] * self.loss_gen_recon_x_a_seg + \
+                              hyperparameters['recon_c_w'] * self.loss_gen_recon_c_a_seg + \
+                              hyperparameters['recon_x_w'] * self.loss_gen_recon_x_b_seg + \
+                              hyperparameters['recon_c_w'] * self.loss_gen_recon_c_b_seg + \
+                              hyperparameters['recon_x_cyc_w'] * self.loss_gen_cycrecon_x_a_seg + \
+                              hyperparameters['recon_x_cyc_w'] * self.loss_gen_cycrecon_x_b_seg
         self.loss_gen_total.backward()
         self.gen_opt.step()
 
@@ -122,7 +146,7 @@ class MUNIT_Trainer(nn.Module):
         target_fea = vgg(target_vgg)
         return torch.mean((self.instancenorm(img_fea) - self.instancenorm(target_fea)) ** 2)
 
-    def sample(self, x_a, x_b):
+    def sample(self, x_a, x_a_seg, x_b, x_b_seg):
         self.eval()
         s_a1 = Variable(self.s_a)
         s_b1 = Variable(self.s_b)
@@ -130,33 +154,33 @@ class MUNIT_Trainer(nn.Module):
         s_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
         x_a_recon, x_b_recon, x_ba1, x_ba2, x_ab1, x_ab2 = [], [], [], [], [], []
         for i in range(x_a.size(0)):
-            c_a, s_a_fake = self.gen_a.encode(x_a[i].unsqueeze(0))
-            c_b, s_b_fake = self.gen_b.encode(x_b[i].unsqueeze(0))
-            x_a_recon.append(self.gen_a.decode(c_a, s_a_fake))
-            x_b_recon.append(self.gen_b.decode(c_b, s_b_fake))
-            x_ba1.append(self.gen_a.decode(c_b, s_a1[i].unsqueeze(0)))
-            x_ba2.append(self.gen_a.decode(c_b, s_a2[i].unsqueeze(0)))
-            x_ab1.append(self.gen_b.decode(c_a, s_b1[i].unsqueeze(0)))
-            x_ab2.append(self.gen_b.decode(c_a, s_b2[i].unsqueeze(0)))
+            c_a, s_a_fake, c_a_seg = self.gen_a.encode(x_a[i].unsqueeze(0), x_a_seg[i].unsqueeze(0))
+            c_b, s_b_fake, c_b_seg = self.gen_b.encode(x_b[i].unsqueeze(0), x_b_seg[i].unsqueeze(0))
+            x_a_recon.append(self.gen_a.decode(c_a, s_a_fake, c_a_seg)[0])
+            x_b_recon.append(self.gen_b.decode(c_b, s_b_fake, c_b_seg)[0])
+            x_ba1.append(self.gen_a.decode(c_b, s_a1[i].unsqueeze(0), c_b_seg)[0])
+            x_ba2.append(self.gen_a.decode(c_b, s_a2[i].unsqueeze(0), c_b_seg)[0])
+            x_ab1.append(self.gen_b.decode(c_a, s_b1[i].unsqueeze(0), c_a_seg)[0])
+            x_ab2.append(self.gen_b.decode(c_a, s_b2[i].unsqueeze(0), c_a_seg)[0])
         x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
         x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
         x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
         self.train()
         return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
 
-    def dis_update(self, x_a, x_b, hyperparameters):
+    def dis_update(self, x_a, x_a_seg, x_b, x_b_seg, hyperparameters):
         self.dis_opt.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
         # encode
-        c_a, _ = self.gen_a.encode(x_a)
-        c_b, _ = self.gen_b.encode(x_b)
+        c_a, _, c_a_seg = self.gen_a.encode(x_a, x_a_seg)
+        c_b, _, c_b_seg = self.gen_b.encode(x_b, x_b_seg)
         # decode (cross domain)
-        x_ba = self.gen_a.decode(c_b, s_a)
-        x_ab = self.gen_b.decode(c_a, s_b)
+        x_ba, x_ba_seg = self.gen_a.decode(c_b, s_a, c_b_seg)
+        x_ab, x_ab_seg = self.gen_b.decode(c_a, s_b, c_a_seg)
         # D loss
-        self.loss_dis_a = self.dis_a.calc_dis_loss(x_ba.detach(), x_a)
-        self.loss_dis_b = self.dis_b.calc_dis_loss(x_ab.detach(), x_b)
+        self.loss_dis_a = self.dis_a.calc_dis_loss(x_ba.detach(), x_ba_seg.detach(), x_a, x_a_seg)
+        self.loss_dis_b = self.dis_b.calc_dis_loss(x_ab.detach(), x_ba_seg.detach(), x_b, x_b_seg)
         self.loss_dis_total = hyperparameters['gan_w'] * self.loss_dis_a + hyperparameters['gan_w'] * self.loss_dis_b
         self.loss_dis_total.backward()
         self.dis_opt.step()

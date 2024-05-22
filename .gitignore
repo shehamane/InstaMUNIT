@@ -14,3 +14,6 @@ src/yaml_generator.py
 *.zip
 *.pkl
 *.pyc
+*.png
+/models/housecat2bigcat.pt
+/models/edges2shoes.pt

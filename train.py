@@ -16,6 +16,8 @@ import os
 import sys
 import tensorboardX
 import shutil
+from torchvision.transforms.functional import to_pil_image
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, default='configs/edges2handbags_folder.yaml', help='Path to the config file.')
@@ -41,8 +43,8 @@ else:
     sys.exit("Only support MUNIT|UNIT")
 trainer.cuda()
 train_loader_a, train_loader_b, test_loader_a, test_loader_b = get_all_data_loaders(config)
-train_display_images_a = torch.stack([train_loader_a.dataset[i] for i in range(display_size)]).cuda()
-train_display_images_b = torch.stack([train_loader_b.dataset[i] for i in range(display_size)]).cuda()
+train_display_images_a = torch.stack([train_loader_a.dataset[i][0] for i in range(display_size)]).cuda()
+train_display_images_b = torch.stack([train_loader_b.dataset[i][0] for i in range(display_size)]).cuda()
 test_display_images_a = torch.stack([test_loader_a.dataset[i] for i in range(display_size)]).cuda()
 test_display_images_b = torch.stack([test_loader_b.dataset[i] for i in range(display_size)]).cuda()
 
@@ -56,14 +58,15 @@ shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy c
 # Start training
 iterations = trainer.resume(checkpoint_directory, hyperparameters=config) if opts.resume else 0
 while True:
-    for it, (images_a, images_b) in enumerate(zip(train_loader_a, train_loader_b)):
+    for it, ((images_a, labels_a), (images_b, labels_b)) in enumerate(zip(train_loader_a, train_loader_b)):
         trainer.update_learning_rate()
         images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
+        labels_a, labels_b = labels_a.cuda().detach(), labels_b.cuda().detach()
 
         with Timer("Elapsed time in update: %f"):
             # Main training code
-            trainer.dis_update(images_a, images_b, config)
-            trainer.gen_update(images_a, images_b, config)
+            trainer.dis_update(images_a, labels_a, images_b, labels_b, config)
+            trainer.gen_update(images_a, labels_a, images_b, labels_b, config)
             torch.cuda.synchronize()
 
         # Dump training stats in log file

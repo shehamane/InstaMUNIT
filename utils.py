@@ -8,7 +8,7 @@ from networks import Vgg16
 from torch.autograd import Variable
 from torch.optim import lr_scheduler
 from torchvision import transforms
-from data import ImageFilelist, ImageFolder
+from data import ImageFilelist, ImageFolder, InstaDataset
 import torch
 import torch.nn as nn
 import os
@@ -50,14 +50,16 @@ def get_all_data_loaders(conf):
     width = conf['crop_image_width']
 
     if 'data_root' in conf:
-        train_loader_a = get_data_loader_folder(os.path.join(conf['data_root'], 'trainA'), batch_size, True,
-                                              new_size_a, height, width, num_workers, True)
+        train_loader_a = get_insta_data_loader_folder(os.path.join(conf['data_root'], 'trainA'),
+                                                os.path.join(conf['data_root'], 'trainA_seg'), batch_size, True,
+                                               num_workers)
         test_loader_a = get_data_loader_folder(os.path.join(conf['data_root'], 'testA'), batch_size, False,
-                                             new_size_a, new_size_a, new_size_a, num_workers, True)
-        train_loader_b = get_data_loader_folder(os.path.join(conf['data_root'], 'trainB'), batch_size, True,
-                                              new_size_b, height, width, num_workers, True)
+                                             num_workers)
+        train_loader_b = get_insta_data_loader_folder(os.path.join(conf['data_root'], 'trainB'),
+                                                os.path.join(conf['data_root'], 'trainB_seg'),batch_size, True,
+                                              num_workers)
         test_loader_b = get_data_loader_folder(os.path.join(conf['data_root'], 'testB'), batch_size, False,
-                                             new_size_b, new_size_b, new_size_b, num_workers, True)
+                                             num_workers)
     else:
         train_loader_a = get_data_loader_list(conf['data_folder_train_a'], conf['data_list_train_a'], batch_size, True,
                                                 new_size_a, height, width, num_workers, True)
@@ -72,34 +74,28 @@ def get_all_data_loaders(conf):
 
 def get_data_loader_list(root, file_list, batch_size, train, new_size=None,
                            height=256, width=256, num_workers=4, crop=True):
-    transform_list = [transforms.ToTensor(),
-                      transforms.Normalize((0.5, 0.5, 0.5),
-                                           (0.5, 0.5, 0.5))]
-    transform_list = [transforms.RandomCrop((height, width))] + transform_list if crop else transform_list
-    transform_list = [transforms.Resize(new_size)] + transform_list if new_size is not None else transform_list
-    transform_list = [transforms.RandomHorizontalFlip()] + transform_list if train else transform_list
-    transform = transforms.Compose(transform_list)
-    dataset = ImageFilelist(root, file_list, transform=transform)
+    dataset = ImageFilelist(root, file_list)
     loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=train, drop_last=True, num_workers=num_workers)
     return loader
 
+
+def get_insta_data_loader_folder(image_folder, label_folder, batch_size, train, num_workers=4):
+    dataset = InstaDataset(image_folder, label_folder)
+    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=train, drop_last=True, num_workers=num_workers)
+    return loader
+
+
+
 def get_data_loader_folder(input_folder, batch_size, train, new_size=None,
                            height=256, width=256, num_workers=4, crop=True):
-    transform_list = [transforms.ToTensor(),
-                      transforms.Normalize((0.5, 0.5, 0.5),
-                                           (0.5, 0.5, 0.5))]
-    transform_list = [transforms.RandomCrop((height, width))] + transform_list if crop else transform_list
-    transform_list = [transforms.Resize(new_size)] + transform_list if new_size is not None else transform_list
-    transform_list = [transforms.RandomHorizontalFlip()] + transform_list if train else transform_list
-    transform = transforms.Compose(transform_list)
-    dataset = ImageFolder(input_folder, transform=transform)
+    dataset = ImageFolder(input_folder)
     loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=train, drop_last=True, num_workers=num_workers)
     return loader
 
 
 def get_config(config):
     with open(config, 'r') as stream:
-        return yaml.load(stream)
+        return yaml.safe_load(stream)
 
 
 def eformat(f, prec):
