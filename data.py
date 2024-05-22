@@ -133,7 +133,7 @@ class InstaDataset(data.Dataset):
         image = TF.to_pil_image(image)
         label = TF.to_pil_image(label, 'L')
 
-        i, j, h, w = T.RandomCrop.get_params(image, output_size=(100, 100))
+        i, j, h, w = T.RandomCrop.get_params(image, output_size=(256, 256))
         image = TF.crop(image, i, j, h, w)
         label = TF.crop(label, i, j, h, w)
 
@@ -188,7 +188,7 @@ class ImageFolder(data.Dataset):
 
         image = TF.to_pil_image(image)
 
-        i, j, h, w = T.RandomCrop.get_params(image, output_size=(100, 100))
+        i, j, h, w = T.RandomCrop.get_params(image, output_size=(256, 256))
         image = TF.crop(image, i, j, h, w)
 
         image = TF.resize(image, 100)

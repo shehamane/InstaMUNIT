@@ -8,16 +8,16 @@ from torch.autograd import Variable
 from trainer import MUNIT_Trainer, UNIT_Trainer
 import torch.backends.cudnn as cudnn
 import torch
+
 try:
     from itertools import izip as zip
-except ImportError: # will be 3.x series
+except ImportError:  # will be 3.x series
     pass
 import os
 import sys
 import tensorboardX
 import shutil
 from torchvision.transforms.functional import to_pil_image
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, default='configs/edges2handbags_folder.yaml', help='Path to the config file.')
@@ -53,7 +53,7 @@ model_name = os.path.splitext(os.path.basename(opts.config))[0]
 train_writer = tensorboardX.SummaryWriter(os.path.join(opts.output_path + "/logs", model_name))
 output_directory = os.path.join(opts.output_path + "/outputs", model_name)
 checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
-shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy config file to output folder
+shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml'))  # copy config file to output folder
 
 # Start training
 iterations = trainer.resume(checkpoint_directory, hyperparameters=config) if opts.resume else 0
@@ -77,14 +77,16 @@ while True:
         # Write images
         if (iterations + 1) % config['image_save_iter'] == 0:
             with torch.no_grad():
-                train_image_outputs = trainer.sample(train_display_images_a, train_display_images_b)
+                train_image_outputs = trainer.sample(train_display_images_a, train_display_images_a_seg,
+                                                     train_display_images_b, train_display_images_b_seg)
             write_2images(train_image_outputs, display_size, image_directory, 'train_%08d' % (iterations + 1))
             # HTML
             write_html(output_directory + "/index.html", iterations + 1, config['image_save_iter'], 'images')
 
         if (iterations + 1) % config['image_display_iter'] == 0:
             with torch.no_grad():
-                image_outputs = trainer.sample(train_display_images_a, train_display_images_b)
+                image_outputs = trainer.sample(train_display_images_a, train_display_images_a_seg,
+                                               train_display_images_b, train_display_images_b_seg)
             write_2images(image_outputs, display_size, image_directory, 'train_current')
 
         # Save network weights
@@ -94,4 +96,3 @@ while True:
         iterations += 1
         if iterations >= max_iter:
             sys.exit('Finish training')
-
