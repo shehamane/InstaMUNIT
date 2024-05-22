@@ -53,12 +53,14 @@ def get_all_data_loaders(conf):
         train_loader_a = get_insta_data_loader_folder(os.path.join(conf['data_root'], 'trainA'),
                                                 os.path.join(conf['data_root'], 'trainA_seg'), batch_size, True,
                                                num_workers)
-        test_loader_a = get_data_loader_folder(os.path.join(conf['data_root'], 'testA'), batch_size, False,
+        test_loader_a = get_insta_data_loader_folder(os.path.join(conf['data_root'], 'testA'),
+                                                     os.path.join(conf['data_root'], 'testA_seg'), batch_size, False,
                                              num_workers)
         train_loader_b = get_insta_data_loader_folder(os.path.join(conf['data_root'], 'trainB'),
                                                 os.path.join(conf['data_root'], 'trainB_seg'),batch_size, True,
                                               num_workers)
-        test_loader_b = get_data_loader_folder(os.path.join(conf['data_root'], 'testB'), batch_size, False,
+        test_loader_b = get_insta_data_loader_folder(os.path.join(conf['data_root'], 'testB'),
+                                                     os.path.join(conf['data_root'], 'testB_seg'), batch_size, False,
                                              num_workers)
     else:
         train_loader_a = get_data_loader_list(conf['data_folder_train_a'], conf['data_list_train_a'], batch_size, True,
