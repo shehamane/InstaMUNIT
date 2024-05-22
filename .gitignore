@@ -15,5 +15,6 @@ src/yaml_generator.py
 *.pkl
 *.pyc
 *.png
+configs/
 /models/housecat2bigcat.pt
 /models/edges2shoes.pt
